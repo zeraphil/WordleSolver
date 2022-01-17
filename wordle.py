@@ -6,13 +6,21 @@ from collections import Counter
 import sys
 
 
+
 class WordleSolver:
 
-    def __init__(self):
+    def __init__(self, strategy = "random"):
         self.vocab = []
         self.guess_vocab = []
         self.solutions = []
         self.solved = False
+        
+        allowed_strategies = ["wordgram", "random", "bigram", "ngram", "cheat"]
+        if strategy not in allowed_strategies:
+            print("Unknown strategy, defaulting to wordgram")
+            strategy = "wordgram"
+
+        self.strategy = strategy
         
     class Evidence:
         def __init__(self):
@@ -46,9 +54,15 @@ class WordleSolver:
     """
     def load_vocab(self):
         print("Loading vocabulary")
-        f = open('vocab.json')
-        vocab = json.load(f)
-        self.vocab = vocab["solutions"] + vocab["herrings"]
+
+        with open('vocab.json') as vocab_file:
+            vocab = json.load(vocab_file)
+            self.vocab = vocab["solutions"] + vocab["herrings"]
+
+        with open('vocab_freq.json') as vocab_freq_file:
+            vocab_freq = json.load(vocab_freq_file)
+            self.vocab_frequencies = vocab_freq #for use in unigram frequency strategy
+
         self.solutions = vocab["solutions"]
         self.guess_vocab = self.vocab
 
@@ -108,7 +122,7 @@ class WordleSolver:
             self.setup_new_run()
             guess = "adieu"
         else:
-            guess = self.build_guess(self.evidence, "ngram_weights")
+            guess = self.build_guess(self.evidence)
 
         print("Guess: " + guess)
         feedback = self.get_feedback(guess, self.solution)
@@ -155,7 +169,7 @@ class WordleSolver:
             print ("You lost right?")
         else:
             print ("Try the following guess")
-            print (self.build_guess(self.evidence, "ngram_weights"))
+            print (self.build_guess(self.evidence))
             self.turn +=1
             self.wordle_play()
 
@@ -181,7 +195,7 @@ class WordleSolver:
     """
     Build set of regex patterns to minimize the search space, based on the collected evidence of allowed letters, invalid letters, and letter positions.
     """
-    def build_guess(self, evidence, strategy = "random"):
+    def build_guess(self, evidence):
 
         #prune the word list
         if evidence.valid:
@@ -228,12 +242,18 @@ class WordleSolver:
         elif (len(guess_space)) == 0: # we're done?
             raise Exception("Something went wrong! We ran out of guessing vocabulary")
         else: # pick a guess from the list with a strategy
-            if strategy == "random":
+            if self.strategy == "random":
                 return self.random_pick(guess_space)
-            elif strategy == "bigram_weights":
+            elif self.strategy == "bigram":
                 return self.bigram_weighted_guess(guess_space)
-            elif strategy == "ngram_weights":
+            elif self.strategy == "ngram":
                 return self.ngram_weighted_guess(guess_space)
+            elif self.strategy == "wordgram":
+                return self.unigram_weighted_guess(guess_space)
+            elif self.strategy == "cheat":
+                return self.cheat(guess_space)
+
+
 
     """
     Just pick a random guess from the list and be done with it
@@ -241,6 +261,20 @@ class WordleSolver:
     def random_pick(self, vocab):
         r = random.randint(0, len(vocab)-1)
         return vocab[r]
+
+    """
+    Cheat by using only known solutions as guesses
+    """
+    def cheat(self, vocab):
+        solution_guesses = []
+        for guess in vocab:
+            if guess in self.solutions:
+                solution_guesses.append(guess)
+
+        if len(solution_guesses) == 1:
+            return solution_guesses[0]
+        else:
+            return self.random_pick(solution_guesses)
 
     """
     Using the knowledge of bigram frequencies in our corpus, choose the likeliest guess based on the current frequency information
@@ -270,47 +304,75 @@ class WordleSolver:
 
         return max_guess
 
+    """
+    Using the attached unigram frequency dictionary, choose the likeliest guess based on the current frequnecy information
+    """
+    def unigram_weighted_guess(self, vocab):
+        scored_guesses = {}
+        for guess in vocab:
+            scored_guesses[guess] = self.vocab_frequencies[guess]
+        
+        max_guess = max(scored_guesses, key=scored_guesses.get)
+
+        return max_guess
+
 
 
 if __name__ == "__main__":  
 
-    if sys.argv[1] == "-wordle" or sys.argv[1] == "-w":
-        solver = WordleSolver()
-        solver.load_vocab()
+    strategy = "wordgram"
 
-        solver.setup_new_run()
-        solver.wordle_play()
-
-    elif sys.argv[1] == "-self" or sys.argv[1] == "-s":
-        print ("Running Algorithm self evaluation")
-
-        solver = WordleSolver()
-        solver.load_vocab()
-        win = 0
-        total = 0
-        guess_count = {1:0, 2:0, 3:0, 4:0, 5:0, 6:0}
-        for i in range(100):
-            print (" New Run! ")
-            solver.setup_new_run()
-            solver.self_play()
-            if solver.turn < 7:
-                win += 1
-                guess_count[solver.turn] += 1
-            total += 1
-
-        print ( str(win) + "/" + str(total))
-        print (guess_count)
-
-    elif sys.argv[1] == "-h" or sys.argv[1] == "-help":
-        print ("-w or -wordle to help solve wordle, -s or -self for evaluating algorithm playing by itself")
-
-    else:
+    if len(sys.argv) == 1:
         print ("No args detected, running wordle mode")
-        solver = WordleSolver()
+        solver = WordleSolver(strategy)
         solver.load_vocab()
 
         solver.setup_new_run()
         solver.wordle_play()
+
+    if len(sys.argv) >= 2:
+
+        if len(sys.argv) >= 3:
+            strategy = sys.argv[2]
+    
+        if sys.argv[1] == "-wordle" or sys.argv[1] == "-w":
+            solver = WordleSolver(strategy)
+            solver.load_vocab()
+
+            solver.setup_new_run()
+            solver.wordle_play()
+
+        elif sys.argv[1] == "-self" or sys.argv[1] == "-s":
+            print ("Running Algorithm self evaluation")
+
+            solver = WordleSolver(strategy)
+            solver.load_vocab()
+            win = 0
+            total = 0
+            guess_count = {1:0, 2:0, 3:0, 4:0, 5:0, 6:0}
+            for i in range(100):
+                print (" New Run! ")
+                solver.setup_new_run()
+                solver.self_play()
+                if solver.turn < 7:
+                    win += 1
+                    guess_count[solver.turn] += 1
+                total += 1
+
+            print ( str(win) + "/" + str(total))
+            print (guess_count)
+
+        elif sys.argv[1] == "-h" or sys.argv[1] == "-help":
+            print ("-w or -wordle to help solve wordle, -s or -self for evaluating algorithm playing by itself")
+            print ("Specify a strategy for your experimentation by adding a followup arg: wordgram, bigram, ngram, or random")
+
+        else:
+            print ("No args detected, running wordle mode")
+            solver = WordleSolver()
+            solver.load_vocab()
+
+            solver.setup_new_run()
+            solver.wordle_play()
 
 
 
