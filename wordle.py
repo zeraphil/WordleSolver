@@ -13,8 +13,6 @@ class WordleSolver:
         self.guess_vocab = []
         self.solutions = []
         self.solved = False
-        self.guesses = []
-
         
     class Evidence:
         def __init__(self):
@@ -23,6 +21,7 @@ class WordleSolver:
 
             self.correct_index = {}
             self.wrong_index = {0:set(), 1:set(), 2:set(), 3:set(), 4:set()}
+            self.guesses = set()
 
         def update(self, guess, feedback):
             for i,c in enumerate(feedback):
@@ -39,6 +38,8 @@ class WordleSolver:
                     print("Wrong character, assuming b")
                     if guess[i] not in self.valid: #in case of repeated chars that show up as b
                         self.invalid.add(guess[i])
+
+            self.guesses.add(guess)
 
     """
     Load the json that handles the Wordle dictionaries for doing self-evaluation or running as a solver
@@ -94,13 +95,11 @@ class WordleSolver:
     Setup new self play run
     """
     def setup_new_run(self):
-        self.guessed_words = []
         self.solved = False
         self.solution = self.random_pick(self.solutions)
         self.turn = 0
         self.evidence = self.Evidence()
         self.guess_vocab = self.vocab
-
 
     def self_play(self):
         
@@ -118,6 +117,7 @@ class WordleSolver:
 
         if feedback == "ggggg":
             print("Success!")
+            self.solved = True
             return
         else:
             self.turn +=1
@@ -205,6 +205,10 @@ class WordleSolver:
         
         guess_space = self.guess_vocab
 
+        #remove any words we've already guessed (sometimes the evidence can fit existing guesses)
+        if evidence.guesses:
+            guess_space = [word for word in guess_space if word not in evidence.guesses ]
+
         #prune our vocab with all the letters that must be included
         if evidence.valid:
             guess_space = [word for word in guess_space if set(word).issuperset(valid_charset) ]
@@ -218,9 +222,6 @@ class WordleSolver:
         #print(indexed_pattern)
         guess_space = [word for word in guess_space if  re.match(indexed_pattern, word) ]
         
-        #remove any words we've already guessed (sometimes the evidence can fit existing guesses)
-        guess_space = [word for word in guess_space if word not in self.guessed_words ]
-
         #print (self.guess_vocab)
         if (len(guess_space)) == 1: # we're done!
             return guess_space[0]
